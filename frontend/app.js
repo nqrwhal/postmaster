@@ -29,7 +29,7 @@ const STATUS_MAP = {
 // Friendly labels for API error codes (raw code shown on hover).
 const ERROR_LABEL = {
   carrier_error:           "Carrier error",
-  invalid_tracking_number: "Invalid tracking number",
+  invalid_tracking_number: "Invalid number",
   unsupported_carrier:     "Unsupported carrier",
   not_found:               "Not found",
   rate_limited:            "Rate limited",

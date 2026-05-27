@@ -484,11 +484,11 @@ kbd {
 .batch-table .col-carrier { width: 36%; }
 .batch-table .col-remove { width: 8%; }
 
-.results-table .col-num { width: 22%; }
-.results-table .col-carrier { width: 12%; }
-.results-table .col-status { width: 18%; }
-.results-table .col-eta { width: 14%; }
-.results-table .col-latest { width: 30%; }
+.results-table .col-num { width: 20%; }
+.results-table .col-carrier { width: 11%; }
+.results-table .col-status { width: 22%; }
+.results-table .col-eta { width: 11%; }
+.results-table .col-latest { width: 32%; }
 .results-table .col-expand { width: 4%; }
 
 .results-table tbody tr { cursor: pointer; }
