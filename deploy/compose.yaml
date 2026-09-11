@@ -1,0 +1,84 @@
+services:
+  postmaster:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8765
+      POSTMASTER_DB_PATH: /data/tracker.sqlite
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - postmaster-data:/data
+      - postmaster-backups:/backups
+    networks: [postmaster]
+    healthcheck:
+      # Keep this endpoint unauthenticated. If /api/v1/health is public, use it here.
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8765/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  backup:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    environment:
+      POSTMASTER_DB_PATH: /data/tracker.sqlite
+      POSTMASTER_BACKUP_DIR: /backups
+      POSTMASTER_BACKUP_RETENTION_DAYS: 7
+    command:
+      ["sh", "-c", "while true; do node deploy/backup.mjs; sleep 86400; done"]
+    volumes:
+      - postmaster-data:/data
+      - postmaster-backups:/backups
+    networks: [postmaster]
+    depends_on:
+      postmaster:
+        condition: service_healthy
+
+  openclaw:
+    profiles: [assistant]
+    image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw@sha256:6cb72e1599b3b76e2ea3dcc2f4dd7f112247367fbecadfcdee8caa7423f4989b}
+    restart: unless-stopped
+    networks: [postmaster]
+    env_file:
+      - path: ../.env
+        required: false
+    environment:
+      POSTMASTER_INTERNAL_URL: http://postmaster:8765
+      OPENCLAW_CONFIG_DIR: /home/node/.openclaw
+    command:
+      [
+        "sh",
+        "-c",
+        "node /opt/postmaster/openclaw-config.mjs && openclaw gateway run",
+      ]
+    volumes:
+      - openclaw-config:/home/node/.openclaw
+      - openclaw-auth:/home/node/.config/openclaw
+      - ../integrations/openclaw:/home/node/.openclaw/extensions/postmaster:ro
+      - ./openclaw-config.mjs:/opt/postmaster/openclaw-config.mjs:ro
+
+networks:
+  postmaster:
+    driver: bridge
+
+volumes:
+  postmaster-data:
+  postmaster-backups:
+  openclaw-config:
+  openclaw-auth:

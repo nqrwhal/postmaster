@@ -1,0 +1,14 @@
+{
+  "name": "@postmaster/openclaw-plugin",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "peerDependencies": {
+    "openclaw": ">=2026.3.24-beta.2"
+  },
+  "openclaw": {
+    "extensions": [
+      "./plugin.mjs"
+    ]
+  }
+}

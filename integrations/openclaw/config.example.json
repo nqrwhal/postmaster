@@ -1,0 +1,30 @@
+{
+  "plugins": {
+    "entries": {
+      "postmaster": {
+        "enabled": true,
+        "config": {
+          "baseUrl": "http://127.0.0.1:8765",
+          "internalToken": "replace-with-postmaster-internal-token"
+        }
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": { "primary": "zai/glm-5.3-flash" },
+      "models": { "zai/glm-5.3-flash": { "alias": "Postmaster Flash" } }
+    }
+  },
+  "models": {
+    "providers": {
+      "zai": {
+        "baseUrl": "https://api.z.ai/api/coding/paas/v4",
+        "apiKey": "${ZAI_API_KEY}",
+        "models": [
+          { "id": "glm-5.3-flash", "name": "GLM-5.3-Flash", "reasoning": true }
+        ]
+      }
+    }
+  }
+}

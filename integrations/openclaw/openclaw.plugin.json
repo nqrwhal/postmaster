@@ -1,0 +1,26 @@
+{
+  "id": "postmaster",
+  "name": "Postmaster package tools",
+  "description": "Allow the Postmaster assistant to manage tracked packages.",
+  "contracts": {
+    "tools": [
+      "postmaster_add",
+      "postmaster_find",
+      "postmaster_detail",
+      "postmaster_rename",
+      "postmaster_archive",
+      "postmaster_refresh",
+      "postmaster_notification_preferences"
+    ]
+  },
+  "activation": { "onStartup": true },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "baseUrl": { "type": "string", "format": "uri" },
+      "internalToken": { "type": "string", "minLength": 1 }
+    },
+    "required": ["baseUrl", "internalToken"]
+  }
+}

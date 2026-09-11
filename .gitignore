@@ -24,3 +24,11 @@ PLAN.md
 .codex-*
 codex-*
 CODEX.md
+CLAUDE.md
+node_modules/
+macos/.build/
+macos/*.app/
+*.tsbuildinfo
+
+test-results/
+playwright-report/
