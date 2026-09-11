@@ -362,8 +362,6 @@
   justify-content: space-between;
   gap: 12px;
   font-size: 13px;
-  padding-bottom: 18px;
-  border-bottom: 1px solid var(--border);
 }
 .detail-fields {
   display: flex;
