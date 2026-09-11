@@ -776,14 +776,13 @@ time {
   font-weight: 500;
 }
 
+.package-editor-dialog {
+  max-width: 420px;
+}
 .package-edit-panel {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--muted);
+  gap: 20px;
 }
 .package-edit-panel input {
   min-width: 0;

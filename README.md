@@ -15,7 +15,7 @@ Screenshots use demo packages, with no live shipment data.
 
 ## Use
 
-Choose **Inbound** for packages you are receiving or **Outbound** for packages you are sending. Add a tracking number and optional name in the dashboard or Mac app. In the dashboard and PWA, use the pencil beside the package name to edit its name, direction, and notifications together. **Save changes** applies all edits; **Cancel** discards them. Refresh and archive stay in the detail toolbar, with delayed tooltips explaining each glyph.
+Choose **Inbound** for packages you are receiving or **Outbound** for packages you are sending. Add a tracking number and optional name in the dashboard or Mac app. In the dashboard and PWA, the pencil beside the package name opens a modal editor for its name, direction, and notifications. The tracking view stays in place behind a dimmed backdrop. **Save changes** applies all edits; **Cancel**, Escape, or clicking outside discards them. Refresh and archive stay in the detail toolbar, with delayed tooltips explaining each glyph.
 
 The tracking number links directly to USPS, UPS, FedEx, OnTrac, or DHL, marked with ↗. Select OnTrac or DHL explicitly when automatic detection is ambiguous. DHL divisions and Other carrier use EasyPost auto-detection; Other opens the EasyPost tracking page when available, or offers a tracking-number copy button. FedEx standalone tracking uses EasyPost’s shared `FedExDefault` integration; the `FedEx` identifier selects the personal carrier-account integration instead. Choose **Milestones**, **Detailed**, or **Muted** alerts in the package editor. Milestones cover delivery, pickup, and problems; detailed mode includes scans and ETA changes.
 

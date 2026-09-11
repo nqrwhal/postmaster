@@ -755,6 +755,7 @@ function Detail({
                 hint="Change name, direction, and notifications"
                 disabled={disabled}
                 aria-expanded={editing}
+                aria-haspopup="dialog"
                 onClick={() => {
                   setName(pkg.name);
                   setDirection(pkg.direction ?? "inbound");
@@ -851,118 +852,148 @@ function Detail({
             {pkg.error}
           </p>
         )}
-        {editing && (
-          <form
-            className="package-edit-panel"
-            aria-label="Edit package"
-            onSubmit={(event) => {
+        <Dialog
+          open={editing}
+          onOpenChange={(open) => {
+            if (busy) return;
+            setEditing(open);
+            if (!open) setError("");
+          }}
+        >
+          <DialogContent
+            className="package-dialog package-editor-dialog"
+            onCloseAutoFocus={(event) => {
               event.preventDefault();
-              if (!name.trim()) return;
-              void run(
-                () =>
-                  mutate(pkg.id, {
-                    name: name.trim(),
-                    direction,
-                    notificationMode,
-                  }),
-                () => setEditing(false),
-              );
+              detailRef.current
+                ?.querySelector<HTMLButtonElement>(
+                  '[aria-label="Edit package"]',
+                )
+                ?.focus();
             }}
           >
-            <div className="form-field">
-              <label htmlFor="rename-package">Package name</label>
-              <Input
-                id="rename-package"
-                autoFocus
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                required
-                maxLength={200}
-                disabled={disabled}
-              />
-            </div>
-            <div className="detail-fields">
+            <DialogHeader>
+              <DialogTitle>Edit package</DialogTitle>
+              <DialogDescription className="sr-only">
+                Change the name, direction, and notifications for this shipment.
+              </DialogDescription>
+            </DialogHeader>
+            <form
+              className="package-edit-panel"
+              aria-label="Edit package"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!name.trim()) return;
+                void run(
+                  () =>
+                    mutate(pkg.id, {
+                      name: name.trim(),
+                      direction,
+                      notificationMode,
+                    }),
+                  () => setEditing(false),
+                );
+              }}
+            >
               <div className="form-field">
-                <label>Direction</label>
-                <DirectionPicker
-                  value={direction}
+                <label htmlFor="rename-package">Package name</label>
+                <Input
+                  id="rename-package"
+                  autoFocus
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  required
+                  maxLength={200}
                   disabled={disabled}
-                  onChange={setDirection}
                 />
               </div>
-              <div className="form-field">
-                <label htmlFor="notification-mode">Notifications</label>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      type="button"
-                      id="notification-mode"
-                      aria-label="Notifications"
-                      variant="outline"
-                      className="notification-select"
-                      disabled={disabled}
-                    >
-                      <span>
-                        {
+              <div className="detail-fields">
+                <div className="form-field">
+                  <label>Direction</label>
+                  <DirectionPicker
+                    value={direction}
+                    disabled={disabled}
+                    onChange={setDirection}
+                  />
+                </div>
+                <div className="form-field">
+                  <label htmlFor="notification-mode">Notifications</label>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        id="notification-mode"
+                        aria-label="Notifications"
+                        variant="outline"
+                        className="notification-select"
+                        disabled={disabled}
+                      >
+                        <span>
                           {
-                            milestones: "Milestones",
-                            detailed: "Every update",
-                            muted: "Muted",
-                          }[notificationMode]
-                        }
-                      </span>
-                      <ChevronDown aria-hidden="true" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent
-                    className="notification-menu"
-                    align="start"
-                    sideOffset={6}
-                    collisionPadding={16}
-                  >
-                    <DropdownMenuRadioGroup
-                      value={notificationMode}
-                      onValueChange={(value) =>
-                        setNotificationMode(value as NotificationMode)
-                      }
+                            {
+                              milestones: "Milestones",
+                              detailed: "Every update",
+                              muted: "Muted",
+                            }[notificationMode]
+                          }
+                        </span>
+                        <ChevronDown aria-hidden="true" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent
+                      className="notification-menu"
+                      align="start"
+                      sideOffset={6}
+                      collisionPadding={16}
                     >
-                      <DropdownMenuRadioItem value="milestones">
-                        Milestones
-                      </DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="detailed">
-                        Every update
-                      </DropdownMenuRadioItem>
-                      <DropdownMenuRadioItem value="muted">
-                        Muted
-                      </DropdownMenuRadioItem>
-                    </DropdownMenuRadioGroup>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                      <DropdownMenuRadioGroup
+                        value={notificationMode}
+                        onValueChange={(value) =>
+                          setNotificationMode(value as NotificationMode)
+                        }
+                      >
+                        <DropdownMenuRadioItem value="milestones">
+                          Milestones
+                        </DropdownMenuRadioItem>
+                        <DropdownMenuRadioItem value="detailed">
+                          Every update
+                        </DropdownMenuRadioItem>
+                        <DropdownMenuRadioItem value="muted">
+                          Muted
+                        </DropdownMenuRadioItem>
+                      </DropdownMenuRadioGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               </div>
-            </div>
-            <div className="dialog-actions">
-              <Button
-                variant="ghost"
-                size="sm"
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  setEditing(false);
-                  setError("");
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                type="submit"
-                disabled={disabled || !name.trim()}
-              >
-                Save changes
-              </Button>
-            </div>
-          </form>
-        )}
+              {error && (
+                <p className="form-error" role="alert">
+                  {error}
+                </p>
+              )}
+              <div className="dialog-actions">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setEditing(false);
+                    setError("");
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  type="submit"
+                  disabled={disabled || !name.trim()}
+                >
+                  Save changes
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
         {!trackingUrl && (
           <Button
             variant="ghost"
@@ -974,7 +1005,7 @@ function Detail({
             Copy tracking number
           </Button>
         )}
-        {error && (
+        {error && !editing && (
           <p className="form-error" role="alert">
             {error}
           </p>

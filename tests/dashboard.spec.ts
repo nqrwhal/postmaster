@@ -455,6 +455,7 @@ for (const colorScheme of ["light", "dark"] as const) {
     await page.keyboard.press("Enter");
     await expect(trigger).toHaveText("Milestones");
     await expect(trigger).toBeEnabled();
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
     await dialog
       .getByRole("button", { name: "Edit package", exact: true })
       .hover();
@@ -544,3 +545,64 @@ test("package editor saves all settings together and cancel discards drafts", as
     form.getByRole("button", { name: "Notifications", exact: true }),
   ).toHaveText("Muted");
 });
+
+for (const width of [390, 1280]) {
+  test(`package editor overlays tracking without moving it at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto("/");
+    await page.getByRole("button", { name: /Desk lamp/ }).click();
+    const detail = page.locator(".detail-dialog");
+    const timeline = detail.locator(".timeline");
+    const before = await timeline.boundingBox();
+    const edit = detail.getByRole("button", {
+      name: "Edit package",
+      exact: true,
+    });
+    await edit.click();
+    const editor = page.getByRole("dialog", {
+      name: "Edit package",
+      exact: true,
+    });
+    await expect(editor).toBeVisible();
+    await expect(page.getByRole("dialog")).toHaveCount(1);
+    expect(await timeline.boundingBox()).toEqual(before);
+    await expect(
+      editor.getByLabel("Package name", { exact: true }),
+    ).toBeFocused();
+    expect(
+      await editor.evaluate((el) => el.scrollWidth <= el.clientWidth),
+    ).toBe(true);
+    await editor
+      .getByLabel("Package name", { exact: true })
+      .fill("Unsaved name");
+    await page.keyboard.press("Escape");
+    await expect(editor).toHaveCount(0);
+    await expect(edit).toBeFocused();
+    await expect(detail).toBeVisible();
+    expect(await timeline.boundingBox()).toEqual(before);
+    await edit.click();
+    await expect(
+      editor.getByLabel("Package name", { exact: true }),
+    ).toHaveValue("Desk lamp");
+    await page.route("**/api/v1/packages/sample-inbound", async (route) => {
+      if (route.request().method() === "PATCH") {
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Could not save changes" }),
+        });
+      } else await route.continue();
+    });
+    await editor.getByRole("button", { name: "Save changes" }).click();
+    await expect(editor.getByRole("alert")).toContainText(
+      "Could not save changes",
+    );
+    await expect(editor).toBeVisible();
+    await page.mouse.click(5, 5);
+    await expect(editor).toHaveCount(0);
+    await expect(detail).toBeVisible();
+    await expect(edit).toBeFocused();
+  });
+}
