@@ -357,9 +357,16 @@ test("detail glyphs expose delayed tooltips and support rename, refresh, archive
   await expect(
     dialog.getByRole("heading", { name: "Renamed glyph parcel", exact: true }),
   ).toBeVisible();
+  const refreshResponse = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/v1/packages/${id}/refresh`) &&
+      response.request().method() === "POST",
+  );
   await dialog
     .getByRole("button", { name: "Refresh tracking", exact: true })
     .click();
+  expect((await refreshResponse).status()).toBe(200);
+  await expect(dialog.locator(".form-error")).toHaveCount(0);
   await expect(
     dialog.getByRole("button", { name: "Refresh tracking", exact: true }),
   ).toBeEnabled();
@@ -604,5 +611,31 @@ for (const width of [390, 1280]) {
     await expect(editor).toHaveCount(0);
     await expect(detail).toBeVisible();
     await expect(edit).toBeFocused();
+  });
+}
+
+for (const [timezoneId, expected] of [
+  ["America/Los_Angeles", "Sep 8, 7:00 AM PDT"],
+  ["America/New_York", "Sep 8, 10:00 AM EDT"],
+]) {
+  test(`tracking timestamps follow device timezone ${timezoneId}`, async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({ timezoneId, locale: "en-US" });
+    try {
+      const page = await context.newPage();
+      await page.goto("http://127.0.0.1:8877/");
+      await page.getByRole("button", { name: /Desk lamp/ }).click();
+      await expect(page.locator(".timeline time")).toHaveText(
+        new RegExp(`^${expected.replace(", ", "(?:, | at )")}$`),
+      );
+      await expect(
+        page.getByRole("dialog").getByText(/^Checked /),
+      ).toContainText(
+        timezoneId === "America/Los_Angeles" ? /P[DS]T/ : /E[DS]T/,
+      );
+    } finally {
+      await context.close();
+    }
   });
 }

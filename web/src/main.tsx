@@ -95,15 +95,20 @@ const detailTime = (value: string) =>
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZoneName: "short",
   });
 const errorText = (error: unknown) =>
   error instanceof Error
     ? error.message
     : "Something went wrong. Please try again.";
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (init?.body != null && !headers.has("content-type")) {
+    headers.set("content-type", "application/json");
+  }
   const response = await fetch(`/api/v1${path}`, {
     ...init,
-    headers: { "content-type": "application/json", ...init?.headers },
+    headers,
     signal: init?.signal ?? AbortSignal.timeout(60_000),
   });
   if (!response.ok) {
