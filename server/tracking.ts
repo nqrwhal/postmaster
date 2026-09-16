@@ -77,6 +77,7 @@ interface Tracker {
   est_delivery_date?: string | null;
   tracking_details?: Array<{
     datetime?: string;
+    datetime_local?: string | null;
     status?: string;
     status_detail?: string;
     message?: string;
@@ -353,6 +354,14 @@ export class TrackingService {
               .update(JSON.stringify([p.id, e.datetime, e.status, e.message]))
               .digest("hex"),
             occurredAt: e.datetime ?? "",
+            // Keep the raw scan key stable for deduplication. EasyPost can
+            // enrich an existing scan with its actual timezone later.
+            occurredAtLocal:
+              e.datetime_local &&
+              /(?:Z|[+-]\d{2}:\d{2})$/.test(e.datetime_local) &&
+              Number.isFinite(Date.parse(e.datetime_local))
+                ? e.datetime_local
+                : null,
             status: e.status ?? "unknown",
             statusDetail: e.status_detail ?? "",
             description: e.message ?? "",

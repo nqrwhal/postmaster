@@ -390,7 +390,9 @@ function App() {
                     </span>
                     <span className="arrival">
                       {pkg.status === "delivered"
-                        ? date(pkg.lastEventAt)
+                        ? date(
+                            pkg.events[0]?.occurredAtLocal ?? pkg.lastEventAt,
+                          )
                         : pkg.eta
                           ? `Expected ${date(pkg.eta)}`
                           : "Awaiting estimate"}
@@ -1023,8 +1025,8 @@ function Detail({
                 <li key={event.id}>
                   <p>{event.description || statusText(event.status)}</p>
                   {event.location && <p className="muted">{event.location}</p>}
-                  <time dateTime={event.occurredAt}>
-                    {detailTime(event.occurredAt)}
+                  <time dateTime={event.occurredAtLocal ?? event.occurredAt}>
+                    {detailTime(event.occurredAtLocal ?? event.occurredAt)}
                   </time>
                 </li>
               ))}

@@ -94,6 +94,10 @@ export class Repository {
         checked_at TEXT NOT NULL
       ); INSERT INTO schema_migrations(version) VALUES(4);`);
     }
+    if (row.v < 5) {
+      this.db.exec(`ALTER TABLE events ADD COLUMN occurred_at_local TEXT;
+        INSERT INTO schema_migrations(version) VALUES(5);`);
+    }
   }
   recordTrackerFees(trackerId: string, fees: unknown): void {
     // Store the latest fee snapshot once per tracker, never add it on each poll.
@@ -281,7 +285,7 @@ export class Repository {
       for (const e of data.events)
         this.db
           .prepare(
-            "INSERT INTO events(id,package_id,occurred_at,status,status_detail,description,location) VALUES(?,?,?,?,?,?,?) ON CONFLICT(package_id,occurred_at,status,description) DO UPDATE SET status_detail=excluded.status_detail,location=excluded.location",
+            "INSERT INTO events(id,package_id,occurred_at,status,status_detail,description,location,occurred_at_local) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(package_id,occurred_at,status,description) DO UPDATE SET status_detail=excluded.status_detail,location=excluded.location,occurred_at_local=COALESCE(excluded.occurred_at_local,events.occurred_at_local)",
           )
           .run(
             e.id,
@@ -291,6 +295,7 @@ export class Repository {
             e.statusDetail,
             e.description,
             e.location,
+            e.occurredAtLocal ?? null,
           );
       if (alertBody) {
         // Persist alongside the observation so retries/restarts cannot enqueue
@@ -396,7 +401,7 @@ export class Repository {
   private hydrate(r: any): Package {
     const events = this.db
       .prepare(
-        "SELECT id,occurred_at occurredAt,status,status_detail statusDetail,description,location FROM events WHERE package_id=? ORDER BY occurred_at DESC",
+        "SELECT id,occurred_at occurredAt,occurred_at_local occurredAtLocal,status,status_detail statusDetail,description,location FROM events WHERE package_id=? ORDER BY datetime(COALESCE(occurred_at_local,occurred_at)) DESC",
       )
       .all(r.id) as unknown as TrackingEvent[];
     return {

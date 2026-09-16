@@ -615,8 +615,8 @@ for (const width of [390, 1280]) {
 }
 
 for (const [timezoneId, expected] of [
-  ["America/Los_Angeles", "Sep 8, 7:00 AM PDT"],
-  ["America/New_York", "Sep 8, 10:00 AM EDT"],
+  ["America/Los_Angeles", "Sep 8, 2:00 PM PDT"],
+  ["America/New_York", "Sep 8, 5:00 PM EDT"],
 ]) {
   test(`tracking timestamps follow device timezone ${timezoneId}`, async ({
     browser,

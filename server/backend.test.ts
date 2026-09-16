@@ -79,7 +79,7 @@ test("legacy schema migrates direction with an inbound default", () => {
         )
         .get() as any
     ).version,
-    4,
+    5,
   );
   repo.close();
   rmSync(dir, { recursive: true, force: true });
@@ -551,5 +551,55 @@ test("tracking spend counts each tracker once, persists, and reconciles refunds"
   } finally {
     repo.close();
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("carrier timezone enrichment persists without duplicating scans or alerts", async () => {
+  const repo = new Repository(":memory:");
+  const service = new TrackingService(repo, config("key"));
+  const original = globalThis.fetch;
+  const scan = {
+    datetime: "2026-09-15T19:55:13Z",
+    datetime_local: null as string | null,
+    status: "delivered",
+    message: "DELIVERED",
+  };
+  const tracker = {
+    id: "trk-timezone",
+    status: "delivered",
+    tracking_details: [scan],
+  };
+  globalThis.fetch = async () => new Response(JSON.stringify(tracker));
+  try {
+    const p = (
+      await service.addPackages([
+        { trackingNumber: "1Z999AA10123456799", name: "Timezone parcel" },
+      ])
+    )[0].package!;
+    service.update(p.id, { notificationMode: "detailed" });
+    assert.equal(p.events[0].occurredAtLocal, null);
+    const scanId = p.events[0].id;
+    scan.datetime_local = "2026-09-15T19:55:13-07:00";
+    const enriched = await service.refresh(p.id);
+    assert.equal(enriched.error, null);
+    assert.equal(enriched.events.length, 1);
+    assert.equal(enriched.events[0].id, scanId);
+    assert.equal(enriched.events[0].occurredAtLocal, scan.datetime_local);
+    assert.equal(enriched.events[0].occurredAt, scan.datetime);
+    assert.equal(repo.listMessages().length, 0);
+    // A later incomplete or malformed provider response must not erase the offset.
+    for (const value of [null, "invalid", "2026-09-15T19:55:13"]) {
+      scan.datetime_local = value;
+      const refreshed = await service.refresh(p.id);
+      assert.equal(
+        refreshed.events[0].occurredAtLocal,
+        "2026-09-15T19:55:13-07:00",
+      );
+      assert.equal(refreshed.events.length, 1);
+      assert.equal(repo.listMessages().length, 0);
+    }
+  } finally {
+    globalThis.fetch = original;
+    repo.close();
   }
 });

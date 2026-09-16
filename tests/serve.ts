@@ -69,6 +69,8 @@ for (const [
       {
         id: `${id}-event`,
         occurredAt: "2026-09-08T14:00:00Z",
+        occurredAtLocal:
+          id === "sample-inbound" ? "2026-09-08T14:00:00-07:00" : null,
         status,
         statusDetail: "",
         description,

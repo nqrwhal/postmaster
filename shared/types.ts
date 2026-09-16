@@ -15,6 +15,8 @@ export type TrackingStatus =
 export interface TrackingEvent {
   id: string;
   occurredAt: string;
+  /** Offset-bearing carrier scan time, when supplied by EasyPost. */
+  occurredAtLocal?: string | null;
   status: string;
   statusDetail: string;
   description: string;
