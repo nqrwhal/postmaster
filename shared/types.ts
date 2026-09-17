@@ -30,6 +30,7 @@ export interface Package {
   direction: PackageDirection;
   status: TrackingStatus;
   statusDetail: string;
+  /** Carrier's estimated delivery calendar date (YYYY-MM-DD). */
   eta: string | null;
   trackerId: string | null;
   carrierTrackingUrl?: string | null;

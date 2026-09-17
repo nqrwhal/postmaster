@@ -64,7 +64,7 @@ for (const [
   repository.saveTracking(id, {
     status,
     statusDetail: "",
-    eta: status === "delivered" ? null : "2026-09-11T12:00:00Z",
+    eta: status === "delivered" ? null : "2026-09-11T00:00:00Z",
     events: [
       {
         id: `${id}-event`,

@@ -1,4 +1,5 @@
 import { carrierTrackingUrl, easypostTrackingUrl } from "../shared/carriers.js";
+import { deliveryDate } from "../shared/dates.js";
 import { mkdirSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname } from "node:path";
@@ -412,7 +413,7 @@ export class Repository {
       direction: r.direction ?? "inbound",
       status: r.status,
       statusDetail: r.status_detail,
-      eta: r.eta,
+      eta: deliveryDate(r.eta),
       trackerId: r.tracker_id,
       carrierTrackingUrl:
         carrierTrackingUrl(r.carrier, r.tracking_number) ??

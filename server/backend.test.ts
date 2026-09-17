@@ -603,3 +603,48 @@ test("carrier timezone enrichment persists without duplicating scans or alerts",
     repo.close();
   }
 });
+
+test("local carrier ETA wins; legacy midnight estimates normalize without extra alerts", async () => {
+  const repo = new Repository(":memory:");
+  const service = new TrackingService(repo, config("key"));
+  const original = globalThis.fetch;
+  const tracker = {
+    id: "trk-eta",
+    status: "in_transit",
+    est_delivery_date: "2026-09-18T00:00:00Z",
+    carrier_detail: { est_delivery_date_local: null as string | null },
+    tracking_details: [],
+  };
+  globalThis.fetch = async () => new Response(JSON.stringify(tracker));
+  try {
+    repo.createPackage(
+      {
+        id: "eta",
+        trackingNumber: "1Z999AA10123456797",
+        carrier: "ups",
+        name: "ETA parcel",
+        notificationMode: "detailed",
+      },
+      { trackerId: tracker.id },
+    );
+    repo.saveTracking("eta", {
+      status: "in_transit",
+      statusDetail: "",
+      eta: tracker.est_delivery_date,
+      events: [],
+    });
+    assert.equal(repo.getPackage("eta")!.eta, "2026-09-18");
+    assert.equal((await service.refresh("eta")).eta, "2026-09-18");
+    assert.equal(repo.listMessages().length, 0);
+    tracker.carrier_detail.est_delivery_date_local = "2026-09-19";
+    assert.equal((await service.refresh("eta")).eta, "2026-09-19");
+    assert.equal(repo.listMessages().length, 1);
+    await service.refresh("eta");
+    assert.equal(repo.listMessages().length, 1);
+    tracker.carrier_detail.est_delivery_date_local = "not-a-date";
+    assert.equal((await service.refresh("eta")).eta, "2026-09-18");
+  } finally {
+    globalThis.fetch = original;
+    repo.close();
+  }
+});

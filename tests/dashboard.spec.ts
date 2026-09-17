@@ -639,3 +639,27 @@ for (const [timezoneId, expected] of [
     }
   });
 }
+
+for (const timezoneId of [
+  "America/Los_Angeles",
+  "America/New_York",
+  "Asia/Tokyo",
+]) {
+  test(`estimated delivery keeps the carrier date in ${timezoneId}`, async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({ timezoneId, locale: "en-US" });
+    try {
+      const page = await context.newPage();
+      await page.goto("http://127.0.0.1:8877/");
+      const row = page.getByRole("button", { name: /Desk lamp/ });
+      await expect(row).toContainText("Expected Sep 11");
+      await row.click();
+      await expect(
+        page.getByRole("dialog").locator(".detail-summary"),
+      ).toContainText("Expected Sep 11");
+    } finally {
+      await context.close();
+    }
+  });
+}

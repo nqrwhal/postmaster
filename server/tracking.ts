@@ -5,6 +5,7 @@ import {
   easypostTrackingUrl,
 } from "../shared/carriers.js";
 import { createHash, randomUUID } from "node:crypto";
+import { deliveryDate } from "../shared/dates.js";
 import type {
   AddPackageInput,
   AddPackageResult,
@@ -75,6 +76,7 @@ interface Tracker {
   status?: string;
   status_detail?: string;
   est_delivery_date?: string | null;
+  carrier_detail?: { est_delivery_date_local?: string | null } | null;
   tracking_details?: Array<{
     datetime?: string;
     datetime_local?: string | null;
@@ -371,7 +373,9 @@ export class TrackingService {
         .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
       const nextStatus = status(t.status),
         detail = t.status_detail ?? "",
-        eta = t.est_delivery_date ?? null;
+        eta =
+          deliveryDate(t.carrier_detail?.est_delivery_date_local) ??
+          deliveryDate(t.est_delivery_date);
       const latest = this.get(p.id)!; // User preferences may change during the request.
       const alert = latest.archived
         ? undefined

@@ -84,7 +84,9 @@ const statusText = (status: string) =>
   statusLabels[status] ?? status.replaceAll("_", " ");
 const date = (value: string | null) =>
   value
-    ? new Date(value).toLocaleDateString(undefined, {
+    ? new Date(
+        /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value,
+      ).toLocaleDateString(undefined, {
         month: "short",
         day: "numeric",
       })
