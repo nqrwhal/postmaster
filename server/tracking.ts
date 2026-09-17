@@ -5,7 +5,11 @@ import {
   easypostTrackingUrl,
 } from "../shared/carriers.js";
 import { createHash, randomUUID } from "node:crypto";
-import { deliveryDate } from "../shared/dates.js";
+import {
+  deliveryDate,
+  explicitTimestamp,
+  scanSortTime,
+} from "../shared/dates.js";
 import type {
   AddPackageInput,
   AddPackageResult,
@@ -358,19 +362,14 @@ export class TrackingService {
             occurredAt: e.datetime ?? "",
             // Keep the raw scan key stable for deduplication. EasyPost can
             // enrich an existing scan with its actual timezone later.
-            occurredAtLocal:
-              e.datetime_local &&
-              /(?:Z|[+-]\d{2}:\d{2})$/.test(e.datetime_local) &&
-              Number.isFinite(Date.parse(e.datetime_local))
-                ? e.datetime_local
-                : null,
+            occurredAtLocal: explicitTimestamp(e.datetime_local),
             status: e.status ?? "unknown",
             statusDetail: e.status_detail ?? "",
             description: e.message ?? "",
             location,
           };
         })
-        .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+        .sort((a, b) => scanSortTime(b) - scanSortTime(a));
       const nextStatus = status(t.status),
         detail = t.status_detail ?? "",
         eta =
@@ -417,7 +416,7 @@ export class TrackingService {
     // location. Carriers enrich old scans; that is not a new tracking event.
     const newEvents = events.filter(
       (e) =>
-        (!p.lastEventAt || e.occurredAt >= p.lastEventAt) &&
+        (!p.events[0] || scanSortTime(e) >= scanSortTime(p.events[0])) &&
         !p.events.some(
           (x) =>
             x.occurredAt === e.occurredAt &&
@@ -453,6 +452,6 @@ export class TrackingService {
     const link = this.config.publicUrl
       ? `\n${this.config.publicUrl}/?package=${encodeURIComponent(p.id)}`
       : "";
-    return `${p.name}: ${s.replaceAll("_", " ")}${detail && problems.has(detail) ? ` (${detail.replaceAll("_", " ")})` : ""}${eta ? `\nETA ${eta}` : ""}${update}${link}`;
+    return `${p.name}: ${s.replaceAll("_", " ")}${detail && problems.has(detail) ? ` (${detail.replaceAll("_", " ")})` : ""}${eta && !["delivered", "cancelled"].includes(s) ? `\nETA ${eta}` : ""}${update}${link}`;
   }
 }

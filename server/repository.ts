@@ -1,5 +1,5 @@
 import { carrierTrackingUrl, easypostTrackingUrl } from "../shared/carriers.js";
-import { deliveryDate } from "../shared/dates.js";
+import { deliveryDate, scanSortTime } from "../shared/dates.js";
 import { mkdirSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname } from "node:path";
@@ -400,11 +400,13 @@ export class Repository {
     };
   }
   private hydrate(r: any): Package {
-    const events = this.db
-      .prepare(
-        "SELECT id,occurred_at occurredAt,occurred_at_local occurredAtLocal,status,status_detail statusDetail,description,location FROM events WHERE package_id=? ORDER BY datetime(COALESCE(occurred_at_local,occurred_at)) DESC",
-      )
-      .all(r.id) as unknown as TrackingEvent[];
+    const events = (
+      this.db
+        .prepare(
+          "SELECT id,occurred_at occurredAt,occurred_at_local occurredAtLocal,status,status_detail statusDetail,description,location FROM events WHERE package_id=? ORDER BY occurred_at DESC",
+        )
+        .all(r.id) as unknown as TrackingEvent[]
+    ).sort((a, b) => scanSortTime(b) - scanSortTime(a));
     return {
       id: r.id,
       trackingNumber: r.tracking_number,

@@ -27,6 +27,8 @@ Use **Scan** to read a shipping barcode with the camera or choose a label photo.
 
 ## Development
 
+Dates follow one rule throughout Postmaster: delivery estimates are carrier calendar dates and never shift with timezone. Scan times use the carrier's explicit offset and display in the device's current timezone, including the correct daylight-saving abbreviation. Scans without a reliable offset are labelled **carrier time (timezone unavailable)** rather than being assigned a guessed timezone. System timestamps such as **Checked** and **Last synced** use device-local time. iMessage dates remain calendar dates; the assistant must label scan times and never infer the phone's timezone from the server.
+
 Requires Node 24 and npm. Provider credentials are optional for UI development; packages can be saved while EasyPost is unconfigured.
 
 ```sh

@@ -663,3 +663,16 @@ for (const timezoneId of [
     }
   });
 }
+
+test("scans without carrier offsets are labelled rather than misrepresented as device time", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: /Running shoes/ }).click();
+  const time = page.locator(".timeline time").first();
+  await expect(time).toContainText("carrier time (timezone unavailable)");
+  await expect(time).not.toHaveAttribute("datetime");
+  await expect(
+    page.getByRole("dialog").getByText(/^Checked /),
+  ).not.toContainText("timezone unavailable");
+});

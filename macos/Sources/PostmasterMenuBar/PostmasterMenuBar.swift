@@ -213,7 +213,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(store.isOnline ? "Connected" : "Offline")
                 if let sync = store.lastSynced {
-                    Text("Last synced \(sync.formatted(date: .abbreviated, time: .shortened))")
+                    Text("Last synced \(PostmasterDates.timestamp(sync))")
                 }
                 if let error = store.errorMessage { Text(error) }
             }
@@ -244,7 +244,7 @@ struct PackageRow: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 8)
-                if let eta = package.eta, let date = Self.date(eta) {
+                if !["delivered", "cancelled"].contains(package.status), let eta = package.eta, let date = PostmasterDates.deliveryDate(eta) {
                     Text("Due \(date)").font(.caption).foregroundStyle(.secondary)
                         .fixedSize()
                 }
@@ -276,19 +276,7 @@ struct PackageRow: View {
         default: "shippingbox"
         }
     }
-    static func date(_ value: String) -> String? {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let fractional = formatter.date(from: value)
-        formatter.formatOptions = [.withInternetDateTime]
-        if let date = fractional ?? formatter.date(from: value) {
-            return date.formatted(.dateTime.month(.abbreviated).day())
-        }
-        let dateOnly = DateFormatter()
-        dateOnly.locale = Locale(identifier: "en_US_POSIX")
-        dateOnly.dateFormat = "yyyy-MM-dd"
-        return dateOnly.date(from: value)?.formatted(.dateTime.month(.abbreviated).day())
-    }
+
 }
 
 struct AddPackageView: View { @ObservedObject var store: Store; @Environment(\.dismiss) private var dismiss; @State private var number = ""; @State private var name = ""; @State private var carrier = ""; @State private var direction: PackageDirection = .inbound

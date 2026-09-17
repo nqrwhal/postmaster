@@ -42,7 +42,7 @@ export function createInboundHandler(
         ? packages
             .map(
               (p) =>
-                `${p.name}: ${p.status.replaceAll("_", " ")}${p.eta ? `, ETA ${p.eta}` : ""}`,
+                `${p.name}: ${p.status.replaceAll("_", " ")}${p.eta && !["delivered", "cancelled"].includes(p.status) ? `, ETA ${p.eta}` : ""}`,
             )
             .join("\n")
             .slice(0, 1200)

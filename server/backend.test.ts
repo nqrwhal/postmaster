@@ -648,3 +648,45 @@ test("local carrier ETA wins; legacy midnight estimates normalize without extra 
     repo.close();
   }
 });
+
+test("repeated DST clock hour is ordered by offset and notifies the later scan once", async () => {
+  const repo = new Repository(":memory:");
+  const service = new TrackingService(repo, config("key"));
+  const original = globalThis.fetch;
+  const first = {
+    datetime: "2026-11-01T01:50:00Z",
+    datetime_local: "2026-11-01T01:50:00-07:00",
+    status: "in_transit",
+    message: "Arrived",
+  };
+  const tracker = {
+    id: "trk-dst",
+    status: "in_transit",
+    tracking_details: [first],
+  };
+  globalThis.fetch = async () => new Response(JSON.stringify(tracker));
+  try {
+    const p = (
+      await service.addPackages([
+        { trackingNumber: "1Z999AA10123456796", name: "DST parcel" },
+      ])
+    )[0].package!;
+    service.update(p.id, { notificationMode: "detailed" });
+    tracker.tracking_details.push({
+      datetime: "2026-11-01T01:10:00Z",
+      datetime_local: "2026-11-01T01:10:00-08:00",
+      status: "in_transit",
+      message: "Departed",
+    });
+    const updated = await service.refresh(p.id);
+    assert.equal(updated.events[0].description, "Departed");
+    assert.equal(updated.lastEventAt, "2026-11-01T01:10:00Z");
+    assert.equal(repo.listMessages().length, 1);
+    assert.match(repo.listMessages()[0].body, /Departed/);
+    await service.refresh(p.id);
+    assert.equal(repo.listMessages().length, 1);
+  } finally {
+    globalThis.fetch = original;
+    repo.close();
+  }
+});

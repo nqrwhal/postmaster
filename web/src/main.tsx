@@ -1,3 +1,10 @@
+import {
+  formatCalendarDate,
+  formatTimestamp,
+  formatScanTime,
+  formatScanDate,
+  scanTimestamp,
+} from "../../shared/dates";
 import { IconAction, TooltipProvider } from "./components/ui/icon-action";
 import {
   carrierLabels as carrierLabel,
@@ -82,23 +89,6 @@ const statusLabels: Record<string, string> = {
 };
 const statusText = (status: string) =>
   statusLabels[status] ?? status.replaceAll("_", " ");
-const date = (value: string | null) =>
-  value
-    ? new Date(
-        /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value,
-      ).toLocaleDateString(undefined, {
-        month: "short",
-        day: "numeric",
-      })
-    : "No estimate";
-const detailTime = (value: string) =>
-  new Date(value).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-  });
 const errorText = (error: unknown) =>
   error instanceof Error
     ? error.message
@@ -392,11 +382,13 @@ function App() {
                     </span>
                     <span className="arrival">
                       {pkg.status === "delivered"
-                        ? date(
-                            pkg.events[0]?.occurredAtLocal ?? pkg.lastEventAt,
+                        ? formatScanDate(
+                            pkg.events[0] ?? {
+                              occurredAt: pkg.lastEventAt ?? "",
+                            },
                           )
                         : pkg.eta
-                          ? `Expected ${date(pkg.eta)}`
+                          ? `Expected ${formatCalendarDate(pkg.eta)}`
                           : "Awaiting estimate"}
                     </span>
                   </div>
@@ -853,7 +845,7 @@ function Detail({
           <span className="muted">
             {pkg.status === "delivered"
               ? "Delivered"
-              : `Expected ${date(pkg.eta)}`}
+              : `Expected ${formatCalendarDate(pkg.eta)}`}
           </span>
         </div>
         {pkg.error && (
@@ -1027,8 +1019,8 @@ function Detail({
                 <li key={event.id}>
                   <p>{event.description || statusText(event.status)}</p>
                   {event.location && <p className="muted">{event.location}</p>}
-                  <time dateTime={event.occurredAtLocal ?? event.occurredAt}>
-                    {detailTime(event.occurredAtLocal ?? event.occurredAt)}
+                  <time dateTime={scanTimestamp(event) ?? undefined}>
+                    {formatScanTime(event)}
                   </time>
                 </li>
               ))}
@@ -1038,7 +1030,9 @@ function Detail({
           )}
         </section>
         {pkg.lastCheckedAt && (
-          <p className="field-note">Checked {detailTime(pkg.lastCheckedAt)}</p>
+          <p className="field-note">
+            Checked {formatTimestamp(pkg.lastCheckedAt)}
+          </p>
         )}
       </DialogContent>
     </Dialog>
@@ -1165,7 +1159,7 @@ function Utilities({
                 </div>
                 <p>{message.body}</p>
                 <time dateTime={message.createdAt}>
-                  {detailTime(message.createdAt)}
+                  {formatTimestamp(message.createdAt)}
                 </time>
               </li>
             ))}

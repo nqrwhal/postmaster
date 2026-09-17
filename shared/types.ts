@@ -14,6 +14,7 @@ export type TrackingStatus =
   | "error";
 export interface TrackingEvent {
   id: string;
+  /** Raw carrier scan key. Its Z suffix is not a reliable UTC guarantee. */
   occurredAt: string;
   /** Offset-bearing carrier scan time, when supplied by EasyPost. */
   occurredAtLocal?: string | null;
@@ -39,6 +40,7 @@ export interface Package {
   createdAt: string;
   updatedAt: string;
   lastCheckedAt: string | null;
+  /** Raw latest scan key; use the corresponding event for time display. */
   lastEventAt: string | null;
   nextCheckAt: string | null;
   error: string | null;
