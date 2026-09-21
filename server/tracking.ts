@@ -61,6 +61,9 @@ function status(s: unknown): TrackingStatus {
     ? (s as TrackingStatus)
     : "unknown";
 }
+function directCarrier(carrier: Package["carrier"]): carrier is "ups" | "fedex" {
+  return carrier === "ups" || carrier === "fedex";
+}
 function failureDelay(attempt: number, retryAfter?: string | null): number {
   const value = Number(retryAfter);
   const retryMs = retryAfter
@@ -175,7 +178,15 @@ export class TrackingService {
             notificationMode: "milestones",
             direction: item.direction ?? "inbound",
           });
-          if (!this.config.easypostApiKey) {
+          if (directCarrier(p.carrier)) {
+            if (!this.config.trackingApiToken) {
+              this.recordFailure(
+                p,
+                new Error("Tracking API token is not configured"),
+              );
+              return this.repository.getPackage(p.id)!;
+            }
+          } else if (!this.config.easypostApiKey) {
             this.recordFailure(
               p,
               new Error("EasyPost API key is not configured"),
@@ -257,8 +268,14 @@ export class TrackingService {
     await Promise.allSettled(this.active.values());
   }
   private async pollDue() {
-    if (!this.config.easypostApiKey || this.stopped) return;
+    if (this.stopped) return;
+    const easypost = Boolean(this.config.easypostApiKey);
+    const trackingApi = Boolean(this.config.trackingApiToken);
+    if (!easypost && !trackingApi) return;
     for (const p of this.repository.duePackages()) {
+      if (directCarrier(p.carrier)) {
+        if (!trackingApi) continue;
+      } else if (!easypost) continue;
       if (this.active.size >= 3) break;
       if (!this.active.has(p.id)) void this.refresh(p.id).catch(() => {});
     }
@@ -325,9 +342,99 @@ export class TrackingService {
       ).toISOString(),
     });
   }
+  private async pollTrackingApi(p: Package): Promise<void> {
+    const base = this.config.trackingApiBase.replace(/\/$/, "");
+    const response = await fetch(
+      `${base}/tracking/${p.carrier}/${encodeURIComponent(p.trackingNumber)}`,
+      {
+        signal: AbortSignal.timeout(15_000),
+        headers: { authorization: `Bearer ${this.config.trackingApiToken}` },
+      },
+    );
+    const payload = (await response.json().catch(() => null)) as {
+      status?: unknown;
+      estimatedDelivery?: unknown;
+      message?: unknown;
+      events?: Array<{
+        timestamp?: string;
+        status?: string;
+        description?: string;
+        location?: string;
+      }>;
+    } | null;
+    if (!response.ok) {
+      throw new ProviderError(
+        typeof payload?.message === "string"
+          ? payload.message
+          : `Tracking API request failed (${response.status})`,
+        response.headers.get("retry-after"),
+      );
+    }
+    if (
+      !payload ||
+      typeof payload.status !== "string" ||
+      !Array.isArray(payload.events)
+    ) {
+      throw new Error("Tracking API returned an invalid response.");
+    }
+    const snapshot = {
+      status: status(payload.status),
+      eta: deliveryDate(payload.estimatedDelivery),
+      events: payload.events.map((event) => ({
+        timestamp: event.timestamp ?? "",
+        status: status(event.status),
+        description: event.description ?? "",
+        location: event.location ?? "",
+      })),
+    };
+    const events: TrackingEvent[] = snapshot.events
+      .map((event) => ({
+        id: createHash("sha256")
+          .update(
+            JSON.stringify([
+              p.id,
+              event.timestamp,
+              event.status,
+              event.description,
+            ]),
+          )
+          .digest("hex"),
+        occurredAt: event.timestamp,
+        occurredAtLocal: explicitTimestamp(event.timestamp),
+        status: event.status,
+        statusDetail: "",
+        description: event.description,
+        location: event.location,
+      }))
+      .sort((a, b) => scanSortTime(b) - scanSortTime(a));
+    const latest = this.get(p.id)!;
+    const alert = latest.archived
+      ? undefined
+      : this.alert(latest, snapshot.status, "", snapshot.eta, events);
+    this.repository.saveTracking(
+      p.id,
+      {
+        status: snapshot.status,
+        statusDetail: "",
+        eta: snapshot.eta,
+        events,
+        nextCheckAt: new Date(Date.now() + 60_000).toISOString(),
+      },
+      alert,
+      this.config.imessageRecipient,
+    );
+    this.repository.setMetadata(`poll.failures:${p.id}`, "0");
+  }
   private async poll(original: Package): Promise<Package> {
     let p = original;
     try {
+      if (directCarrier(p.carrier)) {
+        if (!this.config.trackingApiToken) {
+          throw new Error("Tracking API token is not configured");
+        }
+        await this.pollTrackingApi(p);
+        return this.get(p.id)!;
+      }
       if (!this.config.easypostApiKey)
         throw new Error("EasyPost API key is not configured");
       let t: Tracker;

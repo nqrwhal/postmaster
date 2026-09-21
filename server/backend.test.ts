@@ -13,6 +13,8 @@ const config = (key = ""): Config => ({
   port: 8765,
   host: "127.0.0.1",
   easypostApiKey: key,
+  trackingApiBase: "https://tracking.yufei.dev/api",
+  trackingApiToken: "",
   publicUrl: "https://tracker.test",
   ownerLogin: "owner",
   internalToken: "secret",
@@ -309,7 +311,7 @@ test("carrier enrichment of legacy scans stays quiet; new scans and milestones n
       {
         id: "spam",
         trackingNumber: "1Z9999999999999999",
-        carrier: "ups",
+        carrier: "usps",
         name: "Box",
         notificationMode: "detailed",
       },
@@ -407,7 +409,7 @@ test("identical tracking alerts are durably deduplicated without suppressing com
   }
 });
 
-test("FedEx credential 404 explains setup, backs off, and recovers on manual refresh", async () => {
+test("EasyPost credential 404 explains setup, backs off, and recovers on manual refresh", async () => {
   const repo = new Repository(":memory:");
   const service = new TrackingService(repo, config("key"));
   const original = globalThis.fetch;
@@ -434,14 +436,18 @@ test("FedEx credential 404 explains setup, backs off, and recovers on manual ref
     const started = Date.now();
     const result = (
       await service.addPackages([
-        { trackingNumber: "539245284345", name: "Simplehuman" },
+        {
+          trackingNumber: "9400111899223344556611",
+          carrier: "usps",
+          name: "Simplehuman",
+        },
       ])
     )[0].package!;
-    assert.equal(result.carrier, "fedex");
+    assert.equal(result.carrier, "usps");
     assert.equal(result.trackerId, null);
     assert.match(
       result.error!,
-      /EasyPost could not find credentials for FedEx tracking/,
+      /EasyPost could not find credentials for USPS tracking/,
     );
     assert.doesNotMatch(result.error!, /404/);
     assert.ok(Date.parse(result.nextCheckAt!) >= started + 3_600_000);
@@ -467,7 +473,7 @@ test("unstructured upstream 404 remains a provider failure", async () => {
   globalThis.fetch = async () => new Response("Not found", { status: 404 });
   try {
     const p = (
-      await service.addPackages([{ trackingNumber: "539245284345" }])
+      await service.addPackages([{ trackingNumber: "9400111899223344556677" }])
     )[0].package!;
     assert.equal(p.error, "EasyPost request failed (404)");
   } finally {
@@ -476,43 +482,102 @@ test("unstructured upstream 404 remains a provider failure", async () => {
   }
 });
 
-test("standalone FedEx tracking uses EasyPost shared carrier without a personal carrier account", async () => {
+test("UPS and FedEx use the tracking API and leave USPS on EasyPost", async () => {
   const repo = new Repository(":memory:");
-  const service = new TrackingService(repo, config("key"));
+  const service = new TrackingService(repo, {
+    ...config("key"),
+    trackingApiToken: "tracking-token",
+  });
   const original = globalThis.fetch;
-  const requests: Array<{ url: string; body: any }> = [];
+  const requests: Array<{ url: string; authorization: string | null; body: unknown }> =
+    [];
   globalThis.fetch = async (url, init) => {
     const body = init?.body ? JSON.parse(String(init.body)) : null;
-    requests.push({ url: String(url), body });
-    if (body && body.tracker.carrier !== "FedExDefault") {
+    requests.push({
+      url: String(url),
+      authorization: new Headers(init?.headers).get("authorization"),
+      body,
+    });
+    if (String(url).includes("/tracking/fedex/")) {
       return new Response(
-        JSON.stringify({ error: { code: "CREDENTIALS_NOT_FOUND" } }),
-        { status: 404 },
+        JSON.stringify({
+          carrier: "fedex",
+          trackingNumber: "539245284345",
+          status: "out_for_delivery",
+          estimatedDelivery: "2026-09-22T18:00:00-04:00",
+          events: [
+            {
+              timestamp: "2026-09-21T09:15:00-04:00",
+              status: "out_for_delivery",
+              description: "On FedEx vehicle for delivery",
+              location: "Brooklyn, NY, US",
+            },
+          ],
+        }),
+      );
+    }
+    if (String(url).includes("/tracking/ups/")) {
+      return new Response(
+        JSON.stringify({
+          carrier: "ups",
+          trackingNumber: "1Z999AA10123456784",
+          status: "in_transit",
+          estimatedDelivery: "2026-09-23",
+          events: [],
+        }),
       );
     }
     return new Response(
       JSON.stringify({
-        id: "trk-shared-fedex",
-        carrier: "FedExDefault",
+        id: "trk-usps",
         status: "in_transit",
         tracking_details: [],
       }),
     );
   };
   try {
-    const p = (
+    const fedex = (
       await service.addPackages([
         { trackingNumber: "539245284345", name: "Simplehuman" },
       ])
     )[0].package!;
-    assert.equal(p.carrier, "fedex");
-    assert.equal(p.status, "in_transit");
-    assert.equal(p.error, null);
-    assert.equal(p.trackerId, "trk-shared-fedex");
-    assert.equal(requests[0].body.tracker.carrier, "FedExDefault");
-    await service.refresh(p.id);
-    assert.ok(requests[1].url.endsWith("/trackers/trk-shared-fedex"));
-    assert.equal(repo.listMessages().length, 0);
+    assert.equal(fedex.carrier, "fedex");
+    assert.equal(fedex.status, "out_for_delivery");
+    assert.equal(fedex.eta, "2026-09-22");
+    assert.equal(fedex.trackerId, null);
+    assert.equal(fedex.error, null);
+    assert.equal(fedex.events[0]?.description, "On FedEx vehicle for delivery");
+    assert.equal(fedex.events[0]?.location, "Brooklyn, NY, US");
+    assert.equal(
+      requests[0].url,
+      "https://tracking.yufei.dev/api/tracking/fedex/539245284345",
+    );
+    assert.equal(requests[0].authorization, "Bearer tracking-token");
+    const ups = (
+      await service.addPackages([
+        { trackingNumber: "1Z999AA10123456784", carrier: "ups", name: "Lamp" },
+      ])
+    )[0].package!;
+    assert.equal(ups.carrier, "ups");
+    assert.equal(ups.status, "in_transit");
+    assert.equal(ups.eta, "2026-09-23");
+    assert.equal(ups.trackerId, null);
+    assert.equal(
+      requests[1].url,
+      "https://tracking.yufei.dev/api/tracking/ups/1Z999AA10123456784",
+    );
+    const usps = (
+      await service.addPackages([
+        { trackingNumber: "9400111899223344556601", name: "Mail" },
+      ])
+    )[0].package!;
+    assert.equal(usps.carrier, "usps");
+    assert.equal(usps.trackerId, "trk-usps");
+    assert.equal(
+      (requests[2].body as { tracker: { carrier: string } }).tracker.carrier,
+      "USPS",
+    );
+    assert.equal(repo.trackingSpend(), null);
   } finally {
     globalThis.fetch = original;
     repo.close();
@@ -573,7 +638,7 @@ test("carrier timezone enrichment persists without duplicating scans or alerts",
   try {
     const p = (
       await service.addPackages([
-        { trackingNumber: "1Z999AA10123456799", name: "Timezone parcel" },
+        { trackingNumber: "9400111899223344556699", name: "Timezone parcel" },
       ])
     )[0].package!;
     service.update(p.id, { notificationMode: "detailed" });
@@ -620,8 +685,8 @@ test("local carrier ETA wins; legacy midnight estimates normalize without extra 
     repo.createPackage(
       {
         id: "eta",
-        trackingNumber: "1Z999AA10123456797",
-        carrier: "ups",
+        trackingNumber: "9400111899223344556697",
+        carrier: "usps",
         name: "ETA parcel",
         notificationMode: "detailed",
       },
@@ -668,7 +733,7 @@ test("repeated DST clock hour is ordered by offset and notifies the later scan o
   try {
     const p = (
       await service.addPackages([
-        { trackingNumber: "1Z999AA10123456796", name: "DST parcel" },
+        { trackingNumber: "9400111899223344556696", name: "DST parcel" },
       ])
     )[0].package!;
     service.update(p.id, { notificationMode: "detailed" });

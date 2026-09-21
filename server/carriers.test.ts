@@ -45,6 +45,8 @@ test("new carrier choices register with correct provider routing and retain fall
     port: 0,
     host: "",
     easypostApiKey: "key",
+    trackingApiBase: "https://tracking.yufei.dev/api",
+    trackingApiToken: "",
     publicUrl: "",
     ownerLogin: "",
     internalToken: "",
