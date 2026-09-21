@@ -9,6 +9,8 @@ const { app, repository } = await createApp(
     port: 8877,
     host: "127.0.0.1",
     easypostApiKey: "",
+    trackingApiBase: "https://tracking.yufei.dev/api",
+    trackingApiToken: "",
     publicUrl: "http://127.0.0.1:8877",
     ownerLogin: "",
     internalToken: "",

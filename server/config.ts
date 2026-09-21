@@ -3,6 +3,9 @@ export interface Config {
   port: number;
   host: string;
   easypostApiKey: string;
+  /** Base URL of the Cloudflare tracking API, without a trailing slash. */
+  trackingApiBase: string;
+  trackingApiToken: string;
   publicUrl: string;
   ownerLogin: string;
   internalToken: string;
@@ -15,6 +18,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port: Number(env.PORT ?? 8765),
     host: env.HOST ?? "127.0.0.1",
     easypostApiKey: env.EASYPOST_API_KEY ?? "",
+    trackingApiBase: env.TRACKING_API_BASE ?? "https://tracking.yufei.dev/api",
+    trackingApiToken: env.TRACKING_API_TOKEN ?? "",
     publicUrl: env.PUBLIC_URL ?? "",
     ownerLogin: env.OWNER_LOGIN ?? "",
     internalToken: env.INTERNAL_TOKEN ?? "",
