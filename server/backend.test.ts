@@ -584,6 +584,51 @@ test("UPS and FedEx use the tracking API and leave USPS on EasyPost", async () =
   }
 });
 
+test("DHL uses the tracking API and spaces checks across the daily budget", async () => {
+  const repo = new Repository(":memory:");
+  const service = new TrackingService(repo, {
+    ...config("key"),
+    trackingApiToken: "tracking-token",
+  });
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    assert.match(String(url), /\/tracking\/dhl\//);
+    const number = String(url).split("/").pop();
+    return new Response(
+      JSON.stringify({
+        carrier: "dhl",
+        trackingNumber: number,
+        status: "in_transit",
+        estimatedDelivery: "2026-09-24",
+        events: [],
+      }),
+    );
+  };
+  try {
+    const first = (
+      await service.addPackages([
+        { trackingNumber: "1234567890", carrier: "dhl", name: "Parcel" },
+      ])
+    )[0].package!;
+    assert.equal(first.trackerId, null);
+    assert.equal(first.status, "in_transit");
+    assert.equal(first.eta, "2026-09-24");
+    const firstWait = Date.parse(first.nextCheckAt!) - Date.now();
+    assert.ok(firstWait >= 420_000 && firstWait < 450_000);
+    const second = (
+      await service.addPackages([
+        { trackingNumber: "1234567891", carrier: "dhl", name: "Second" },
+      ])
+    )[0].package!;
+    const secondWait = Date.parse(second.nextCheckAt!) - Date.now();
+    assert.ok(secondWait >= 840_000 && secondWait < 900_000);
+    assert.equal(repo.trackingSpend(), null);
+  } finally {
+    globalThis.fetch = original;
+    repo.close();
+  }
+});
+
 test("tracking spend counts each tracker once, persists, and reconciles refunds", () => {
   const dir = mkdtempSync(join(tmpdir(), "postmaster-spend-"));
   const path = join(dir, "db.sqlite");

@@ -61,8 +61,17 @@ function status(s: unknown): TrackingStatus {
     ? (s as TrackingStatus)
     : "unknown";
 }
-function directCarrier(carrier: Package["carrier"]): carrier is "ups" | "fedex" {
-  return carrier === "ups" || carrier === "fedex";
+function directCarrier(
+  carrier: Package["carrier"],
+): carrier is "ups" | "fedex" | "dhl" {
+  return carrier === "ups" || carrier === "fedex" || carrier === "dhl";
+}
+/** Leave headroom under DHL's 250 calls/day for a manual refresh. */
+const DHL_SCHEDULED_CHECKS_PER_DAY = 200;
+function dhlCheckIntervalMs(activePackages: number): number {
+  return Math.ceil(
+    (86_400_000 * Math.max(activePackages, 1)) / DHL_SCHEDULED_CHECKS_PER_DAY,
+  );
 }
 function failureDelay(attempt: number, retryAfter?: string | null): number {
   const value = Number(retryAfter);
@@ -272,10 +281,14 @@ export class TrackingService {
     const easypost = Boolean(this.config.easypostApiKey);
     const trackingApi = Boolean(this.config.trackingApiToken);
     if (!easypost && !trackingApi) return;
+    const dhlInFlight = [...this.active.keys()].some(
+      (id) => this.get(id)?.carrier === "dhl",
+    );
     for (const p of this.repository.duePackages()) {
       if (directCarrier(p.carrier)) {
         if (!trackingApi) continue;
       } else if (!easypost) continue;
+      if (p.carrier === "dhl" && dhlInFlight) continue;
       if (this.active.size >= 3) break;
       if (!this.active.has(p.id)) void this.refresh(p.id).catch(() => {});
     }
@@ -418,12 +431,19 @@ export class TrackingService {
         statusDetail: "",
         eta: snapshot.eta,
         events,
-        nextCheckAt: new Date(Date.now() + 60_000).toISOString(),
+        nextCheckAt: new Date(Date.now() + this.nextCheckDelay(p)).toISOString(),
       },
       alert,
       this.config.imessageRecipient,
     );
     this.repository.setMetadata(`poll.failures:${p.id}`, "0");
+  }
+  private nextCheckDelay(p: Package): number {
+    if (p.carrier !== "dhl") return 60_000;
+    const active = this.repository
+      .listPackages(false)
+      .filter((item) => item.carrier === "dhl").length;
+    return dhlCheckIntervalMs(active);
   }
   private async poll(original: Package): Promise<Package> {
     let p = original;
