@@ -61,8 +61,19 @@ function status(s: unknown): TrackingStatus {
     ? (s as TrackingStatus)
     : "unknown";
 }
-function directCarrier(carrier: Package["carrier"]): carrier is "ups" | "fedex" {
-  return carrier === "ups" || carrier === "fedex";
+function directCarrier(
+  carrier: Package["carrier"],
+): carrier is "ups" | "fedex" | "dhl" {
+  return carrier === "ups" || carrier === "fedex" || carrier === "dhl";
+}
+/** Leave headroom under DHL's 250 calls/day for a manual refresh. */
+const DHL_SCHEDULED_CHECKS_PER_DAY = 200;
+/** New DHL labels can stay unknown to DHL for hours after creation. */
+const DHL_NOT_FOUND_DELAY_MS = 3_600_000;
+function dhlCheckIntervalMs(activePackages: number): number {
+  return Math.ceil(
+    (86_400_000 * Math.max(activePackages, 1)) / DHL_SCHEDULED_CHECKS_PER_DAY,
+  );
 }
 function failureDelay(attempt: number, retryAfter?: string | null): number {
   const value = Number(retryAfter);
@@ -272,12 +283,18 @@ export class TrackingService {
     const easypost = Boolean(this.config.easypostApiKey);
     const trackingApi = Boolean(this.config.trackingApiToken);
     if (!easypost && !trackingApi) return;
+    let dhlInFlight = [...this.active.keys()].some(
+      (id) => this.get(id)?.carrier === "dhl",
+    );
     for (const p of this.repository.duePackages()) {
       if (directCarrier(p.carrier)) {
         if (!trackingApi) continue;
       } else if (!easypost) continue;
+      if (p.carrier === "dhl" && dhlInFlight) continue;
       if (this.active.size >= 3) break;
-      if (!this.active.has(p.id)) void this.refresh(p.id).catch(() => {});
+      if (this.active.has(p.id)) continue;
+      void this.refresh(p.id).catch(() => {});
+      if (p.carrier === "dhl") dhlInFlight = true;
     }
   }
   private async request(
@@ -319,6 +336,9 @@ export class TrackingService {
     this.repository.setMetadata(key, String(count));
     const missingCredentials =
       error instanceof ProviderError && error.code === "CREDENTIALS_NOT_FOUND";
+    const dhl = p.carrier === "dhl";
+    const notFound =
+      error instanceof ProviderError && error.code === "NOT_FOUND";
     const carrier = carrierLabels[p.carrier];
     this.repository.saveTracking(p.id, {
       status: p.status,
@@ -334,6 +354,9 @@ export class TrackingService {
         Date.now() +
           Math.max(
             missingCredentials ? 3_600_000 : 0,
+            // Failed DHL calls still count against the shared daily limit.
+            dhl ? this.dhlInterval() : 0,
+            dhl && notFound ? DHL_NOT_FOUND_DELAY_MS : 0,
             failureDelay(
               count - 1,
               error instanceof ProviderError ? error.retryAfter : null,
@@ -368,6 +391,7 @@ export class TrackingService {
           ? payload.message
           : `Tracking API request failed (${response.status})`,
         response.headers.get("retry-after"),
+        response.status === 404 ? "NOT_FOUND" : null,
       );
     }
     if (
@@ -418,12 +442,21 @@ export class TrackingService {
         statusDetail: "",
         eta: snapshot.eta,
         events,
-        nextCheckAt: new Date(Date.now() + 60_000).toISOString(),
+        nextCheckAt: new Date(
+          Date.now() + this.nextCheckDelay(p),
+        ).toISOString(),
       },
       alert,
       this.config.imessageRecipient,
     );
     this.repository.setMetadata(`poll.failures:${p.id}`, "0");
+  }
+  private nextCheckDelay(p: Package): number {
+    return p.carrier === "dhl" ? this.dhlInterval() : 60_000;
+  }
+  /** Split the budget across DHL packages the poller will actually check. */
+  private dhlInterval(): number {
+    return dhlCheckIntervalMs(this.repository.pollableCount("dhl"));
   }
   private async poll(original: Package): Promise<Package> {
     let p = original;

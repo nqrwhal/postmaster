@@ -67,7 +67,7 @@ test("new carrier choices register with correct provider routing and retain fall
     );
   };
   try {
-    for (carrier of ["ontrac", "dhl", "other"] as Carrier[]) {
+    for (carrier of ["ontrac", "other"] as Carrier[]) {
       const p = (
         await service.addPackages([{ trackingNumber: "1234567890", carrier }])
       )[0].package!;

@@ -33,6 +33,9 @@ export interface InboundPayload {
 
 const now = () => new Date().toISOString();
 const uuid = () => randomUUID();
+/** Active, and either not terminal or terminal within the last 24 hours. */
+const pollable =
+  "archived=0 AND (status NOT IN ('delivered','cancelled') OR datetime(replace(terminal_observed_at,'T',' '))>datetime(?,'-24 hours'))";
 
 export class Repository {
   readonly db: DatabaseSync;
@@ -229,10 +232,20 @@ export class Repository {
     return (
       this.db
         .prepare(
-          "SELECT * FROM packages WHERE archived=0 AND next_check_at<=? AND (status NOT IN ('delivered','cancelled') OR datetime(replace(terminal_observed_at,'T',' '))>datetime(?,'-24 hours'))",
+          `SELECT * FROM packages WHERE next_check_at<=? AND ${pollable}`,
         )
         .all(at, at) as any[]
     ).map((x) => this.hydrate(x));
+  }
+  /** Packages of a carrier that the poller keeps checking, due or not. */
+  pollableCount(carrier: string, at = now()): number {
+    return (
+      this.db
+        .prepare(
+          `SELECT COUNT(*) n FROM packages WHERE carrier=? AND ${pollable}`,
+        )
+        .get(carrier, at) as { n: number }
+    ).n;
   }
   saveTracking(
     id: string,

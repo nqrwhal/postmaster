@@ -489,8 +489,11 @@ test("UPS and FedEx use the tracking API and leave USPS on EasyPost", async () =
     trackingApiToken: "tracking-token",
   });
   const original = globalThis.fetch;
-  const requests: Array<{ url: string; authorization: string | null; body: unknown }> =
-    [];
+  const requests: Array<{
+    url: string;
+    authorization: string | null;
+    body: unknown;
+  }> = [];
   globalThis.fetch = async (url, init) => {
     const body = init?.body ? JSON.parse(String(init.body)) : null;
     requests.push({
@@ -579,6 +582,184 @@ test("UPS and FedEx use the tracking API and leave USPS on EasyPost", async () =
     );
     assert.equal(repo.trackingSpend(), null);
   } finally {
+    globalThis.fetch = original;
+    repo.close();
+  }
+});
+
+test("DHL uses the tracking API and spaces checks across the daily budget", async () => {
+  const repo = new Repository(":memory:");
+  const service = new TrackingService(repo, {
+    ...config("key"),
+    trackingApiToken: "tracking-token",
+  });
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    assert.match(String(url), /\/tracking\/dhl\//);
+    const number = String(url).split("/").pop();
+    return new Response(
+      JSON.stringify({
+        carrier: "dhl",
+        trackingNumber: number,
+        status: "in_transit",
+        estimatedDelivery: "2026-09-24",
+        events: [],
+      }),
+    );
+  };
+  try {
+    const first = (
+      await service.addPackages([
+        { trackingNumber: "1234567890", carrier: "dhl", name: "Parcel" },
+      ])
+    )[0].package!;
+    assert.equal(first.trackerId, null);
+    assert.equal(first.status, "in_transit");
+    assert.equal(first.eta, "2026-09-24");
+    const firstWait = Date.parse(first.nextCheckAt!) - Date.now();
+    assert.ok(firstWait >= 420_000 && firstWait < 450_000);
+    const second = (
+      await service.addPackages([
+        { trackingNumber: "1234567891", carrier: "dhl", name: "Second" },
+      ])
+    )[0].package!;
+    const secondWait = Date.parse(second.nextCheckAt!) - Date.now();
+    assert.ok(secondWait >= 840_000 && secondWait < 900_000);
+    assert.equal(repo.trackingSpend(), null);
+  } finally {
+    globalThis.fetch = original;
+    repo.close();
+  }
+});
+
+test("DHL budget ignores packages the poller no longer checks", async () => {
+  const repo = new Repository(":memory:");
+  const service = new TrackingService(repo, {
+    ...config("key"),
+    trackingApiToken: "tracking-token",
+  });
+  const original = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ status: "in_transit", events: [] }));
+  try {
+    for (let i = 0; i < 4; i++) {
+      repo.createPackage({
+        id: `delivered-${i}`,
+        trackingNumber: `900000000${i}`,
+        carrier: "dhl",
+        name: "Old",
+        notificationMode: "milestones",
+      });
+      repo.saveTracking(`delivered-${i}`, {
+        status: "delivered",
+        statusDetail: "",
+        eta: null,
+        events: [],
+      });
+    }
+    repo.db
+      .prepare("UPDATE packages SET terminal_observed_at=?")
+      .run(new Date(Date.now() - 48 * 3_600_000).toISOString());
+    repo.createPackage({
+      id: "archived",
+      trackingNumber: "9000000009",
+      carrier: "dhl",
+      name: "Archived",
+      notificationMode: "milestones",
+    });
+    repo.updatePackage("archived", { archived: true });
+    assert.equal(repo.pollableCount("dhl"), 0);
+    const live = (
+      await service.addPackages([
+        { trackingNumber: "1234567890", carrier: "dhl", name: "Live" },
+      ])
+    )[0].package!;
+    const wait = Date.parse(live.nextCheckAt!) - Date.now();
+    assert.ok(wait >= 420_000 && wait < 450_000, `waited ${wait} ms`);
+  } finally {
+    globalThis.fetch = original;
+    repo.close();
+  }
+});
+
+test("DHL failures wait for the budget, and unknown DHL numbers wait an hour", async () => {
+  const repo = new Repository(":memory:");
+  const service = new TrackingService(repo, {
+    ...config("key"),
+    trackingApiToken: "tracking-token",
+  });
+  const original = globalThis.fetch;
+  let response = () =>
+    new Response(JSON.stringify({ message: "Upstream unavailable" }), {
+      status: 503,
+    });
+  globalThis.fetch = async () => response();
+  const waitFor = (p: { nextCheckAt: string | null }) =>
+    Date.parse(p.nextCheckAt!) - Date.now();
+  try {
+    const failing = (
+      await service.addPackages([
+        { trackingNumber: "1234567890", carrier: "dhl", name: "Failing" },
+      ])
+    )[0].package!;
+    assert.equal(failing.error, "Upstream unavailable");
+    assert.ok(waitFor(failing) >= 420_000, "DHL failure waits for budget");
+    const ups = (
+      await service.addPackages([{ trackingNumber: "1Z999AA10123456784" }])
+    )[0].package!;
+    assert.ok(waitFor(ups) < 90_000, "other carriers keep the short backoff");
+    response = () =>
+      new Response(JSON.stringify({ message: "Shipment not found" }), {
+        status: 404,
+      });
+    const unknown = (
+      await service.addPackages([
+        { trackingNumber: "1234567891", carrier: "dhl", name: "New label" },
+      ])
+    )[0].package!;
+    assert.equal(unknown.error, "Shipment not found");
+    assert.ok(waitFor(unknown) >= 3_590_000, "DHL 404 waits an hour");
+  } finally {
+    globalThis.fetch = original;
+    repo.close();
+  }
+});
+
+test("only one DHL check is in flight even when several are due", async () => {
+  const repo = new Repository(":memory:");
+  const service = new TrackingService(repo, {
+    ...config("key"),
+    trackingApiToken: "tracking-token",
+  });
+  const original = globalThis.fetch;
+  let inFlight = 0;
+  let peak = 0;
+  let requests = 0;
+  globalThis.fetch = async () => {
+    requests++;
+    peak = Math.max(peak, ++inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    inFlight--;
+    return new Response(JSON.stringify({ status: "in_transit", events: [] }));
+  };
+  try {
+    for (let i = 0; i < 3; i++)
+      repo.createPackage({
+        id: `dhl-${i}`,
+        trackingNumber: `123456789${i}`,
+        carrier: "dhl",
+        name: `Parcel ${i}`,
+        notificationMode: "milestones",
+      });
+    repo.db
+      .prepare("UPDATE packages SET next_check_at=?")
+      .run(new Date(0).toISOString());
+    service.start();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert.equal(peak, 1);
+    assert.equal(requests, 1);
+  } finally {
+    await service.stop();
     globalThis.fetch = original;
     repo.close();
   }
