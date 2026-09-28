@@ -9,7 +9,8 @@ export class PostmasterTools {
         method,
         headers: {
           authorization: `Bearer ${this.config.internalToken}`,
-          "content-type": "application/json",
+          // Fastify rejects an empty body labelled as JSON.
+          ...(body ? { "content-type": "application/json" } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,
       },
