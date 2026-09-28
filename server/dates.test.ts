@@ -62,6 +62,53 @@ test("scan offsets convert across date boundaries and missing offsets stay expli
   );
 });
 
+test("carrier delivery clocks stay on the expected calendar day in every device timezone", () => {
+  const ups = {
+    occurredAt: "2026-09-11T17:27:27Z",
+    occurredAtLocal: "2026-09-11T17:27:27-07:00",
+  };
+  const fedex = {
+    occurredAt: "2026-09-10T19:12:37Z",
+    occurredAtLocal: "2026-09-10T12:12:37-07:00",
+  };
+  const usps = {
+    occurredAt: "2026-09-17T17:18:50Z",
+    occurredAtLocal: "2026-09-17T12:18:50-05:00",
+  };
+  const previous = process.env.TZ;
+  try {
+    for (const zone of ["UTC", "America/New_York", "Asia/Tokyo", "America/Los_Angeles"]) {
+      process.env.TZ = zone;
+      assert.equal(formatScanTime(ups, "en-US"), "Sep 11, 5:27 PM GMT-7");
+      assert.equal(formatScanDate(ups, "en-US"), "Sep 11");
+      assert.equal(formatScanTime(fedex, "en-US"), "Sep 10, 12:12 PM GMT-7");
+      assert.equal(formatScanTime(usps, "en-US"), "Sep 17, 12:18 PM GMT-5");
+      assert.equal(
+        formatScanTime({ occurredAt: "2026-09-10T12:12:37-07:00" }, "en-US"),
+        "Sep 10, 12:12 PM GMT-7",
+      );
+    }
+  } finally {
+    if (previous === undefined) delete process.env.TZ;
+    else process.env.TZ = previous;
+  }
+  assert.match(formatScanTime(ups, "en-US", "UTC"), /Sep 12.*12:27.*AM UTC/);
+});
+
+test("date-only midnight UTC scans keep the carrier calendar day", () => {
+  const scan = {
+    occurredAt: "2026-09-03T00:00:00Z",
+    occurredAtLocal: "2026-09-02T17:00:00-07:00",
+  };
+  assert.equal(formatScanDate(scan, "en-US"), "Sep 3");
+  assert.equal(formatScanTime(scan, "en-US"), "Sep 3");
+  const localMidnight = {
+    occurredAt: "2026-09-09T00:00:00Z",
+    occurredAtLocal: "2026-09-09T00:00:00-07:00",
+  };
+  assert.equal(formatScanTime(localMidnight, "en-US"), "Sep 9, 12:00 AM GMT-7");
+});
+
 test("invalid and timezone-free timestamps never inherit the server or device timezone", () => {
   for (const value of [
     null,
