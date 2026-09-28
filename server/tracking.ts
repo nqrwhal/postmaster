@@ -21,6 +21,7 @@ import type {
   TrackingStatus,
 } from "../shared/types.js";
 import { Repository } from "./repository.js";
+import { sameScan } from "./scans.js";
 import type { Config } from "./config.js";
 
 const carriers = supportedCarriers;
@@ -102,6 +103,12 @@ class ProviderError extends Error {
     super(message);
   }
 }
+export interface TrackingLogger {
+  warn(details: Record<string, unknown>, message: string): void;
+}
+const consoleLogger: TrackingLogger = {
+  warn: (details, message) => console.warn(message, details),
+};
 
 export class TrackingService {
   private timer?: NodeJS.Timeout;
@@ -111,6 +118,7 @@ export class TrackingService {
   constructor(
     public repository: Repository,
     public config: Config,
+    private readonly log: TrackingLogger = consoleLogger,
   ) {}
 
   async addPackages(items: AddPackageInput[]): Promise<AddPackageResult[]> {
@@ -264,8 +272,13 @@ export class TrackingService {
   start() {
     if (this.timer) return;
     this.stopped = false;
-    this.timer = setInterval(() => void this.pollDue(), 5_000);
-    void this.pollDue();
+    this.timer = setInterval(() => this.runDue(), 5_000);
+    this.runDue();
+  }
+  private runDue() {
+    this.pollDue().catch((err: unknown) =>
+      this.log.warn({ err }, "Tracking poll failed; retrying next tick"),
+    );
   }
   async stop() {
     this.stopped = true;
@@ -383,8 +396,17 @@ export class TrackingService {
     ) {
       throw new Error("Tracking API returned an invalid response.");
     }
+    if (
+      !payload.events.length &&
+      status(payload.status) === "unknown" &&
+      (p.status !== "unknown" || p.events.length > 0)
+    ) {
+      throw new ProviderError(
+        "Tracking API returned no tracking data; showing the last known status.",
+      );
+    }
     const snapshot = {
-      status: status(payload.status),
+      status: this.mappedStatus(payload.status, p),
       eta: deliveryDate(payload.estimatedDelivery),
       events: payload.events.map((event) => ({
         timestamp: event.timestamp ?? "",
@@ -414,9 +436,16 @@ export class TrackingService {
       }))
       .sort((a, b) => scanSortTime(b) - scanSortTime(a));
     const latest = this.get(p.id)!;
-    const alert = latest.archived
-      ? undefined
-      : this.alert(latest, snapshot.status, "", snapshot.eta, events);
+    // A package that started on EasyPost has differently worded history. Its
+    // first tracking API snapshot replaces that history and does not alert.
+    const baselineKey = `tracking.apiBaseline:${p.id}`;
+    const rebaseline =
+      latest.trackerId !== null &&
+      this.repository.getMetadata(baselineKey) === null;
+    const alert =
+      latest.archived || rebaseline
+        ? undefined
+        : this.alert(latest, snapshot.status, "", snapshot.eta, events);
     this.repository.saveTracking(
       p.id,
       {
@@ -428,7 +457,9 @@ export class TrackingService {
       },
       alert,
       this.config.imessageRecipient,
+      { replaceEvents: rebaseline },
     );
+    if (rebaseline) this.repository.setMetadata(baselineKey, "done");
     this.repository.setMetadata(`poll.failures:${p.id}`, "0");
   }
   private async poll(original: Package): Promise<Package> {
@@ -483,7 +514,7 @@ export class TrackingService {
           };
         })
         .sort((a, b) => scanSortTime(b) - scanSortTime(a));
-      const nextStatus = status(t.status),
+      const nextStatus = this.mappedStatus(t.status, p),
         detail = t.status_detail ?? "",
         eta =
           deliveryDate(t.carrier_detail?.est_delivery_date_local) ??
@@ -510,6 +541,17 @@ export class TrackingService {
     }
     return this.get(p.id)!;
   }
+  /** A status the provider added after this code keeps the last known one. */
+  private mappedStatus(raw: unknown, p: Package): TrackingStatus {
+    const mapped = status(raw);
+    if (mapped !== "unknown" || typeof raw !== "string" || raw === "unknown")
+      return mapped;
+    this.log.warn(
+      { packageId: p.id, carrier: p.carrier, status: raw },
+      "Unmapped tracking status; keeping the last known status",
+    );
+    return p.status;
+  }
   private alert(
     p: Package,
     s: TrackingStatus,
@@ -525,17 +567,12 @@ export class TrackingService {
       return;
     const statusChanged = s !== p.status,
       detailChanged = detail !== p.statusDetail;
-    // Match the database's natural scan key, including legacy IDs that hashed
-    // location. Carriers enrich old scans; that is not a new tracking event.
+    // Match the stored scan identity. Carriers enrich old scans and providers
+    // remap their statuses; neither is a new tracking event.
     const newEvents = events.filter(
       (e) =>
         (!p.events[0] || scanSortTime(e) >= scanSortTime(p.events[0])) &&
-        !p.events.some(
-          (x) =>
-            x.occurredAt === e.occurredAt &&
-            x.status === e.status &&
-            x.description === e.description,
-        ),
+        !p.events.some((x) => sameScan(x, e)),
     );
     if (p.notificationMode === "milestones") {
       const milestone = [

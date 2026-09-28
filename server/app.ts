@@ -23,7 +23,7 @@ export async function createApp(
 ) {
   const app = Fastify({ logger: options.logger ?? true, bodyLimit: 64 * 1024 });
   const repository = new Repository(config.dbPath);
-  const tracking = new TrackingService(repository, config);
+  const tracking = new TrackingService(repository, config, app.log);
   app.addHook("onRequest", async (request, reply) => {
     const path = request.url.split("?")[0];
     if (path === "/healthz") return;

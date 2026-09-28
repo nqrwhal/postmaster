@@ -1,5 +1,6 @@
 import { carrierTrackingUrl, easypostTrackingUrl } from "../shared/carriers.js";
 import { deliveryDate, scanSortTime } from "../shared/dates.js";
+import { sameScan, scanIdentity } from "./scans.js";
 import { mkdirSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { dirname } from "node:path";
@@ -246,6 +247,8 @@ export class Repository {
     },
     alertBody?: string,
     recipient = "",
+    /** Replace the stored timeline with this snapshot when it has scans. */
+    options: { replaceEvents?: boolean } = {},
   ) {
     const t = now();
     this.db.exec("BEGIN");
@@ -283,7 +286,27 @@ export class Repository {
           t,
           id,
         );
-      for (const e of data.events)
+      const replace = options.replaceEvents && data.events.length > 0;
+      if (replace)
+        this.db.prepare("DELETE FROM events WHERE package_id=?").run(id);
+      const known = replace ? [] : [...old.events];
+      for (const e of data.events) {
+        const match = known.find((x) => sameScan(x, e));
+        if (match) {
+          // A row that would collide with a legacy duplicate keeps its values.
+          this.db
+            .prepare(
+              "UPDATE OR IGNORE events SET status=?,status_detail=?,location=?,occurred_at_local=COALESCE(?,occurred_at_local) WHERE id=?",
+            )
+            .run(
+              e.status,
+              e.statusDetail,
+              e.location,
+              e.occurredAtLocal ?? null,
+              match.id,
+            );
+          continue;
+        }
         this.db
           .prepare(
             "INSERT INTO events(id,package_id,occurred_at,status,status_detail,description,location,occurred_at_local) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(package_id,occurred_at,status,description) DO UPDATE SET status_detail=excluded.status_detail,location=excluded.location,occurred_at_local=COALESCE(excluded.occurred_at_local,events.occurred_at_local)",
@@ -298,12 +321,16 @@ export class Repository {
             e.location,
             e.occurredAtLocal ?? null,
           );
+        known.push(e);
+      }
       if (alertBody) {
         // Persist alongside the observation so retries/restarts cannot enqueue
-        // consecutive identical alerts. Command replies use their own IDs.
+        // consecutive identical alerts. The newest scan is part of the
+        // fingerprint, so a repeated milestone with a new scan still alerts.
+        // Command replies use their own IDs.
         const key = `tracking.lastAlert:${id}:${recipient}`;
         const fingerprint = createHash("sha256")
-          .update(alertBody)
+          .update(JSON.stringify([alertBody, scanIdentity(data.events[0])]))
           .digest("hex");
         if (this.getMetadata(key) !== fingerprint) {
           this.enqueueMessage({ recipient, body: alertBody });
