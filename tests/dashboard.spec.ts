@@ -614,11 +614,12 @@ for (const width of [390, 1280]) {
   });
 }
 
-for (const [timezoneId, expected] of [
-  ["America/Los_Angeles", "Sep 8, 2:00 PM PDT"],
-  ["America/New_York", "Sep 8, 5:00 PM EDT"],
-]) {
-  test(`tracking timestamps follow device timezone ${timezoneId}`, async ({
+for (const [timezoneId, checkedZone] of [
+  ["America/Los_Angeles", /P[DS]T/],
+  ["America/New_York", /E[DS]T/],
+  ["Asia/Tokyo", /GMT\+9|JST/],
+] as const) {
+  test(`scan times keep the carrier clock in ${timezoneId}`, async ({
     browser,
   }) => {
     const context = await browser.newContext({ timezoneId, locale: "en-US" });
@@ -626,14 +627,15 @@ for (const [timezoneId, expected] of [
       const page = await context.newPage();
       await page.goto("http://127.0.0.1:8877/");
       await page.getByRole("button", { name: /Desk lamp/ }).click();
-      await expect(page.locator(".timeline time")).toHaveText(
-        new RegExp(`^${expected.replace(", ", "(?:, | at )")}$`),
+      const time = page.locator(".timeline time");
+      await expect(time).toHaveText(/^Sep 8(?:, | at )2:00 PM GMT-7$/);
+      await expect(time).toHaveAttribute(
+        "datetime",
+        "2026-09-08T14:00:00-07:00",
       );
       await expect(
         page.getByRole("dialog").getByText(/^Checked /),
-      ).toContainText(
-        timezoneId === "America/Los_Angeles" ? /P[DS]T/ : /E[DS]T/,
-      );
+      ).toContainText(checkedZone);
     } finally {
       await context.close();
     }
