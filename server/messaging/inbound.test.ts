@@ -128,3 +128,41 @@ test("repeated shorthand updates explicit name and direction without creating an
     repo.close();
   }
 });
+
+test("texting an archived tracking number restores it", async () => {
+  const repo = new Repository(":memory:");
+  const tracking = new TrackingService(repo, {
+    ...loadConfig({}),
+    dbPath: ":memory:",
+  });
+  repo.createPackage({
+    id: "archived",
+    trackingNumber: "9300111043900020273157",
+    carrier: "usps",
+    name: "x300",
+    notificationMode: "milestones",
+  });
+  repo.updatePackage("archived", { archived: true });
+  const handler = createInboundHandler({ baseUrl: "", token: "" }, tracking);
+  const replies: string[] = [];
+  try {
+    await handler(
+      {
+        id: "restore-text",
+        senderId: "+15551234567",
+        body: "9300111043900020273157",
+      },
+      async (text) => {
+        replies.push(text);
+      },
+    );
+    const pkg = repo.getPackage("archived")!;
+    assert.equal(pkg.archived, false);
+    assert.equal(pkg.name, "x300");
+    assert.equal(repo.listPackages().length, 1);
+    assert.match(replies[0], /Tracking x300/);
+  } finally {
+    await tracking.stop();
+    repo.close();
+  }
+});

@@ -163,7 +163,13 @@ export class TrackingService {
         .listPackages()
         .find((p) => p.carrier === c && p.trackingNumber === n);
       if (existing) {
-        out.push({ trackingNumber: n, package: existing });
+        // Adding an archived number again means the user wants it tracked.
+        out.push({
+          trackingNumber: n,
+          package: existing.archived
+            ? this.repository.updatePackage(existing.id, { archived: false })
+            : existing,
+        });
         continue;
       }
       let job = this.adding.get(key);

@@ -25,6 +25,7 @@ export function createInboundHandler(
           ...(input.direction !== undefined
             ? { direction: input.direction }
             : {}),
+          ...(existing.archived ? { archived: false } : {}),
         };
         const pkg = Object.keys(patch).length
           ? tracking.update(existing.id, patch)
