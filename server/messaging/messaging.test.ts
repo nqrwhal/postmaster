@@ -7,6 +7,7 @@ import {
   PhotonIntegration,
 } from "./photon.js";
 import { drainOutbox } from "./outbox.js";
+import { Repository } from "../repository.js";
 import type { OutboxMessage } from "../../shared/types.js";
 
 function message(
@@ -107,6 +108,53 @@ describe("messaging safety and reliability", () => {
     await drainOutbox(repo, transport);
     await drainOutbox(repo, transport);
     assert.deepEqual(calls, ["m1:provider:postmaster:m1"]);
+  });
+
+  it("keeps retrying an alert through a long outage, then gives up after a day", async (t) => {
+    t.mock.timers.enable({
+      apis: ["Date"],
+      now: Date.parse("2026-09-28T12:00:00Z"),
+    });
+    const repo = new Repository(":memory:");
+    try {
+      repo.enqueueMessage({
+        id: "alert",
+        recipient: "+15551234567",
+        body: "Box: out for delivery",
+      });
+      let up = false;
+      let sends = 0;
+      const transport = {
+        send: async () => {
+          sends++;
+          if (!up) throw new Error("stream unavailable");
+          return { providerId: "sent-1" };
+        },
+      };
+      const runFor = async (ms: number) => {
+        for (let elapsed = 0; elapsed < ms; elapsed += 5_000) {
+          await drainOutbox(repo, transport);
+          t.mock.timers.tick(5_000);
+        }
+      };
+      await runFor(6 * 3_600_000);
+      assert.equal(repo.getMessage("alert")!.state, "pending");
+      assert.ok(sends > 9, `only ${sends} attempts in six hours`);
+      up = true;
+      await runFor(20 * 60_000);
+      assert.equal(repo.getMessage("alert")!.state, "sent");
+
+      up = false;
+      repo.enqueueMessage({
+        id: "stale",
+        recipient: "+15551234567",
+        body: "Box: delivered",
+      });
+      await runFor(25 * 3_600_000);
+      assert.equal(repo.getMessage("stale")!.state, "failed");
+    } finally {
+      repo.close();
+    }
   });
 
   it("suppresses a replay before invoking the handler twice", () => {

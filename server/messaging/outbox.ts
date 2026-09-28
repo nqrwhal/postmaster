@@ -3,6 +3,8 @@ import type { MessageTransport, MessagingRepository } from "./contracts.js";
 
 const retryDelay = (attempts: number) =>
   Math.min(15 * 60_000, 1_000 * 2 ** Math.min(attempts, 10));
+/** Keep retrying through a provider outage; give up after a day. */
+const retryWindowMs = 24 * 60 * 60_000;
 
 export async function drainOutbox(
   repo: MessagingRepository,
@@ -20,7 +22,8 @@ export async function drainOutbox(
       repo.markMessageSent(message.id, result.providerId);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
-      if (message.attempts >= 8) repo.failMessage(message.id, detail);
+      if (!(Date.now() - Date.parse(message.createdAt) < retryWindowMs))
+        repo.failMessage(message.id, detail);
       else
         repo.retryMessage(
           message.id,
